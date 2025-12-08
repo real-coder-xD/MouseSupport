@@ -24,9 +24,9 @@ class TrayManager(QObject):
         icon_image = self.load_icon(icon_path)
 
         menu = pystray.Menu(
-            pystray.MenuItem(" Show Window ", self.show_window),
-            pystray.MenuItem(" Hide Window ", self.hide_window),
-            pystray.MenuItem(" Exit Window ", self.exit_app)
+            pystray.MenuItem("Show Window", self.show_window),
+            pystray.MenuItem("Hide Window", self.hide_window),
+            pystray.MenuItem("Exit Window", self.exit_app)
         )
 
         self.tray_icon = pystray.Icon(
@@ -44,7 +44,6 @@ class TrayManager(QObject):
         possible_paths = [
             "icons/icon.png",
         ]
-
         for path in possible_paths:
             if path and os.path.exists(path):
                 try:

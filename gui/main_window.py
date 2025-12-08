@@ -3,6 +3,7 @@ from core.scroll_manager import get_scroll_delay
 from core.scroll_manager import stop_auto_scroll
 from core.mouse_controller import start_listener
 from core.scroll_manager import auto_scroll
+from core.speed_presets import SpeedPresets
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWidgets import QMainWindow
@@ -11,7 +12,7 @@ from PyQt6.QtWidgets import QSlider
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtWidgets import QFrame
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFontDatabase, QFont
 from pynput import keyboard
 import threading
@@ -35,6 +36,13 @@ class MouseSupport(QMainWindow):
         self.scroll_thread = None
         self.switch_window = False
         self.keyboard_listener = None
+        self.middle_button_handler = None
+        self.speed_presets = SpeedPresets()
+        self.current_preset = None
+        self.preset_label = None
+        self.is_changing_preset = False
+        self.is_manual_slider_change = False
+
         self.exit_requested.connect(self.close)
         self.setup_global_hotkey()
         self.setup_mouse_thread()
@@ -52,7 +60,7 @@ class MouseSupport(QMainWindow):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        self.setGeometry(100, 100, 300, 130)
+        self.setGeometry(100, 100, 300, 150)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -70,7 +78,6 @@ class MouseSupport(QMainWindow):
         """)
 
         frame_layout = QVBoxLayout(frame)
-
         frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         frame_layout.setContentsMargins(15, 15, 15, 15)
 
@@ -91,12 +98,26 @@ class MouseSupport(QMainWindow):
         current_delay = get_scroll_delay()
         slider_value = self.delay_to_slider_value(current_delay)
 
+        self.current_preset = self.speed_presets.get_preset_by_slider_value(slider_value)
+
+        self.preset_label = QLabel(f"Preset: {self.current_preset['name']}")
+        self.preset_label.setFont(font)
+        self.preset_label.setStyleSheet(f"""
+            QLabel {{
+                color: {self.current_preset['color']};
+                font-weight: bold;
+                font-size: 14px;
+            }}
+        """)
+        self.preset_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        frame_layout.addWidget(self.preset_label)
+
         self.speed_label = QLabel(f"Speed: {1 / current_delay:.1f} scrolls/sec")
         self.speed_label.setFont(font)
         self.speed_label.setStyleSheet("""
             QLabel {
                 color: rgba(200, 200, 0, 180);
-                font-size: 14px;
+                font-size: 14x;
             }
         """)
         self.speed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -108,7 +129,10 @@ class MouseSupport(QMainWindow):
         self.speed_slider.setTickInterval(10)
         self.speed_slider.setValue(slider_value)
         self.speed_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+
         self.speed_slider.valueChanged.connect(self.on_speed_changed)
+        self.speed_slider.sliderReleased.connect(self.on_slider_released)
+
         self.speed_slider.setStyleSheet("""
             QSlider::groove:horizontal {
                 background: rgba(100, 100, 100, 150);
@@ -169,7 +193,7 @@ class MouseSupport(QMainWindow):
         elif delay >= 0.2:
             return 5
         else:
-            self.slider_value = 5 + (0.2 - delay) * 975
+            self.slider_value = 5 + (0.2 - delay) * 1000
             return int(self.slider_value)
 
     def slider_value_to_delay(self, slider_value):
@@ -190,13 +214,46 @@ class MouseSupport(QMainWindow):
         return self.font
 
     def on_speed_changed(self, slider_value):
-        new_delay = self.slider_value_to_delay(slider_value)
+        if self.is_changing_preset:
+            return
 
+        self.is_manual_slider_change = True
+
+        new_delay = self.slider_value_to_delay(slider_value)
         update_scroll_delay(new_delay)
+
+        scrolls_per_sec = 1 / new_delay
+        self.speed_label.setText(f"Speed: {scrolls_per_sec:.1f} scrolls/sec")
+
+        if not self.is_changing_preset:
+            self.current_preset = self.speed_presets.get_preset_by_slider_value(slider_value)
+            self.preset_label.setText(f"Preset: {self.current_preset['name']}")
+            self.preset_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {self.current_preset['color']};
+                    font-size: 14px;
+                    font-weight: bold;
+                }}
+            """)
+
         self.speed_changed.emit(new_delay)
+        QTimer.singleShot(100, lambda: setattr(self, 'is_manual_slider_change', False))
+
+    def on_slider_released(self):
+        if not self.is_changing_preset:
+            slider_value = self.speed_slider.value()
+            self.current_preset = self.speed_presets.get_preset_by_slider_value(slider_value)
+            self.preset_label.setText(f"Preset: {self.current_preset['name']}")
+            self.preset_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {self.current_preset['color']};
+                    font-size: 14px;
+                    font-weight: bold;
+                }}
+            """)
 
     def update_speed_label(self, delay):
-        if delay > 0:
+        if delay > 0 and not self.is_manual_slider_change:
             scrolls_per_sec = 1 / delay
             self.speed_label.setText(f"Speed: {scrolls_per_sec:.1f} scrolls/sec")
 
@@ -204,6 +261,46 @@ class MouseSupport(QMainWindow):
         self.listener = start_listener()
         self.scroll_thread = threading.Thread(target=auto_scroll, daemon=True)
         self.scroll_thread.start()
+
+    def change_speed_preset(self):
+        self.is_changing_preset = True
+        next_preset = self.speed_presets.next_preset()
+        self.speed_slider.setValue(next_preset["slider_value"])
+        update_scroll_delay(next_preset["delay"])
+
+        self.preset_label.setText(f"Preset: {next_preset['name']}")
+        self.preset_label.setStyleSheet(f"""
+            QLabel {{
+                color: {next_preset['color']};
+                font-size: 14px;
+                font-weight: bold;
+            }}
+        """)
+
+        self.speed_label.setText(f"Speed: {1 / next_preset['delay']:.1f} scrolls/sec")
+        QTimer.singleShot(100, lambda: setattr(self, 'is_changing_preset', False))
+        self.show_notification(f"Speed preset: {next_preset['name']}")
+
+    def show_notification(self, message):
+        original_text = self.preset_label.text()
+        original_style = self.preset_label.styleSheet()
+
+        self.preset_label.setText(message)
+        self.preset_label.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 12px;
+                font-weight: bold;
+                background-color: rgba(0, 0, 0, 100);
+                padding: 2px;
+                border-radius: 3px;
+            }
+        """)
+
+        QTimer.singleShot(1000, lambda: [
+            self.preset_label.setText(original_text),
+            self.preset_label.setStyleSheet(original_style)
+        ])
 
     def setup_global_hotkey(self):
         def on_activate():
@@ -272,6 +369,9 @@ class MouseSupport(QMainWindow):
 
         if self.keyboard_listener:
             self.keyboard_listener.stop()
+
+        if self.middle_button_handler:
+            self.middle_button_handler.stop()
 
         if self.tray_manager:
             self.tray_manager.stop()
