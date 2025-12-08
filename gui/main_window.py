@@ -2,26 +2,25 @@ from core.scroll_manager import update_scroll_delay
 from core.scroll_manager import get_scroll_delay
 from core.scroll_manager import stop_auto_scroll
 from core.mouse_controller import start_listener
+from core.scroll_manager import auto_scroll
 
+from PyQt6.QtWidgets import QApplication
 from PyQt6.QtWidgets import QMainWindow
 from PyQt6.QtWidgets import QVBoxLayout
-from PyQt6.QtWidgets import QWidget
 from PyQt6.QtWidgets import QSlider
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtWidgets import QFrame
-
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtCore import Qt
-
-from PyQt6.QtGui import QFontDatabase
-from PyQt6.QtGui import QFont
-
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QFontDatabase, QFont
 from pynput import keyboard
 import threading
 import sys
 
+from core.tray_manager import TrayManager
 
-class TransparentWindow(QMainWindow):
+
+class MouseSupport(QMainWindow):
     speed_changed = pyqtSignal(float)
     exit_requested = pyqtSignal()
 
@@ -31,13 +30,18 @@ class TransparentWindow(QMainWindow):
         self.drag_pos = None
         self.listener = None
         self.speed_label = None
+        self.tray_manager = None
         self.speed_slider = None
         self.scroll_thread = None
+        self.switch_window = False
         self.keyboard_listener = None
         self.exit_requested.connect(self.close)
         self.setup_global_hotkey()
         self.setup_mouse_thread()
+        self.setup_tray()
+
         self.init_ui()
+
         self.show()
 
     def init_ui(self):
@@ -66,17 +70,19 @@ class TransparentWindow(QMainWindow):
         """)
 
         frame_layout = QVBoxLayout(frame)
+
+        frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         frame_layout.setContentsMargins(15, 15, 15, 15)
 
         font = self.load_font()
 
-        title_label = QLabel("Mouse scroll controller")
+        title_label = QLabel("Mouse controller")
         title_label.setFont(font)
         title_label.setStyleSheet("""
             QLabel {
                 color: rgba(0, 255, 0, 150);
                 font-weight: bold;
-                font-size: 16px;
+                font-size: 20px;
             }
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -89,7 +95,7 @@ class TransparentWindow(QMainWindow):
         self.speed_label.setFont(font)
         self.speed_label.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 0, 150);
+                color: rgba(200, 200, 0, 180);
                 font-size: 14px;
             }
         """)
@@ -99,9 +105,9 @@ class TransparentWindow(QMainWindow):
         self.speed_slider = QSlider(Qt.Orientation.Horizontal)
         self.speed_slider.setMinimum(5)
         self.speed_slider.setMaximum(200)
+        self.speed_slider.setTickInterval(10)
         self.speed_slider.setValue(slider_value)
         self.speed_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.speed_slider.setTickInterval(10)
         self.speed_slider.valueChanged.connect(self.on_speed_changed)
         self.speed_slider.setStyleSheet("""
             QSlider::groove:horizontal {
@@ -133,14 +139,14 @@ class TransparentWindow(QMainWindow):
         instruction_label.setFont(font)
         instruction_label.setStyleSheet("""
             QLabel {
-                color: rgba(200, 200, 200, 180);
+                color: rgba(200, 200, 200, 200);
                 font-size: 12px;
             }
         """)
         instruction_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         frame_layout.addWidget(instruction_label)
 
-        hotkey_label = QLabel("Global Hotkey: ALT+Q (Exit)")
+        hotkey_label = QLabel("Global Hotkey: ALT+Q (Show/Hide)")
         hotkey_label.setFont(font)
         hotkey_label.setStyleSheet("""
             QLabel {
@@ -163,15 +169,15 @@ class TransparentWindow(QMainWindow):
         elif delay >= 0.2:
             return 5
         else:
-            slider_value = 5 + (0.2 - delay) * 975
-            return int(slider_value)
+            self.slider_value = 5 + (0.2 - delay) * 975
+            return int(self.slider_value)
 
     def slider_value_to_delay(self, slider_value):
-        delay = 0.2 - (slider_value - 5) * (0.195 / 195)
-        return max(0.005, min(0.2, delay))
+        self.delay = 0.2 - (slider_value - 5) * (0.195 / 195)
+        return max(0.005, min(0.2, self.delay))
 
     def load_font(self):
-        font_path = "fonts/turtles.otf"
+        font_path = "fonts/tektur.ttf"
         font_id = QFontDatabase.addApplicationFont(font_path)
         if font_id != -1:
             font_families = QFontDatabase.applicationFontFamilies(font_id)
@@ -195,14 +201,18 @@ class TransparentWindow(QMainWindow):
             self.speed_label.setText(f"Speed: {scrolls_per_sec:.1f} scrolls/sec")
 
     def setup_mouse_thread(self):
-        from core.scroll_manager import auto_scroll
         self.listener = start_listener()
         self.scroll_thread = threading.Thread(target=auto_scroll, daemon=True)
         self.scroll_thread.start()
 
     def setup_global_hotkey(self):
         def on_activate():
-            self.exit_requested.emit()
+            if self.switch_window:
+                self.show_window_from_tray()
+                self.switch_window = False
+            else:
+                self.hide_window_from_tray()
+                self.switch_window = True
 
         hotkey = keyboard.HotKey(
             keyboard.HotKey.parse('<ALT>+Q'),
@@ -223,6 +233,21 @@ class TransparentWindow(QMainWindow):
         keyboard_thread = threading.Thread(target=start_keyboard_listener, daemon=True)
         keyboard_thread.start()
 
+    def setup_tray(self):
+        self.tray_manager = TrayManager("Mouse controller")
+        self.tray_manager.show_window_requested.connect(self.show_window_from_tray)
+        self.tray_manager.hide_window_requested.connect(self.hide_window_from_tray)
+        self.tray_manager.exit_requested.connect(self.exit_application)
+        self.tray_manager.setup_tray()
+
+    def show_window_from_tray(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def hide_window_from_tray(self):
+        self.hide()
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_pos = event.globalPosition().toPoint()
@@ -238,11 +263,19 @@ class TransparentWindow(QMainWindow):
         self.drag_pos = None
 
     def closeEvent(self, event):
+        event.ignore()
+        self.hide()
+
+    def exit_application(self):
         if self.listener:
             self.listener.stop()
 
         if self.keyboard_listener:
             self.keyboard_listener.stop()
+
+        if self.tray_manager:
+            self.tray_manager.stop()
+
         stop_auto_scroll()
-        event.accept()
+        QApplication.quit()
         sys.exit()
