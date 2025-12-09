@@ -1,6 +1,10 @@
 from .scroll_manager import set_scroll_direction
 from .scroll_manager import set_scroll_active
 from pynput.mouse import Listener, Button
+from pynput.keyboard import Controller, Key
+
+# Khởi tạo keyboard controller
+keyboard = Controller()
 
 
 def on_click(x, y, button, pressed):
@@ -19,7 +23,9 @@ def on_click(x, y, button, pressed):
             set_scroll_active(False)
             set_scroll_direction(0)
     elif button == Button.middle and pressed:
-        pass
+        # Gửi phím F9 khi nhấn chuột giữa
+        keyboard.press(Key.f9)
+        keyboard.release(Key.f9)
     return True
 
 
