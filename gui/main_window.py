@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QSlider
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtWidgets import QFrame
+
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QFontDatabase, QFont
 from pynput import keyboard
@@ -83,7 +84,7 @@ class MouseSupport(QMainWindow):
 
         font = self.load_font()
 
-        title_label = QLabel("Mouse controller")
+        title_label = QLabel("MOUSE CONTROLLER")
         title_label.setFont(font)
         title_label.setStyleSheet("""
             QLabel {
@@ -331,7 +332,7 @@ class MouseSupport(QMainWindow):
         keyboard_thread.start()
 
     def setup_tray(self):
-        self.tray_manager = TrayManager("Mouse controller")
+        self.tray_manager = TrayManager("MOUSE CONTROLLER")
         self.tray_manager.show_window_requested.connect(self.show_window_from_tray)
         self.tray_manager.hide_window_requested.connect(self.hide_window_from_tray)
         self.tray_manager.exit_requested.connect(self.exit_application)

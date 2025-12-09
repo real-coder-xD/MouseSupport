@@ -1,17 +1,9 @@
 from .scroll_manager import set_scroll_direction
 from .scroll_manager import set_scroll_active
+from pynput.keyboard import Controller, Key
+from pynput.mouse import Listener, Button
 
-from pynput.mouse import Listener
-from pynput.mouse import Button
-
-from pynput.keyboard import Key
-
-import pynput.keyboard
-import pynput.mouse
-
-
-keyboard = pynput.keyboard.Controller()
-mouse =  pynput.mouse.Controller()
+keyboard = Controller()
 
 def mouse_click(x, y, button, pressed):
     if button == Button.x1:
@@ -29,10 +21,6 @@ def mouse_click(x, y, button, pressed):
             set_scroll_active(False)
             set_scroll_direction(0)
 
-    if button == Button.middle and pressed:
-        mouse.click(Button.left)
-        keyboard.press(Key.f9)
-        keyboard.release(Key.f9)
     return True
 
 
